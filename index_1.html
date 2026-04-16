@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="온그린파크골프">
@@ -618,29 +621,158 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
     });
   };
 
-  // ── 앱 로드 시 Firebase에서 데이터 불러오기 ──
+  // ── 기업광고 실시간 동기화 ──
+  window.fbSaveAds = async function(ads) {
+    try {
+      await setDoc(doc(db, 'shared', 'ads'), { data: JSON.stringify(ads) });
+    } catch(e) { console.error('광고 저장 오류:', e); }
+  };
+
+  window.fbLoadAds = function(callback) {
+    onSnapshot(doc(db, 'shared', 'ads'), (snap) => {
+      if(snap.exists()) {
+        try {
+          const ads = JSON.parse(snap.data().data);
+          callback(ads);
+        } catch(e) {}
+      }
+    });
+  };
+
+  // ── 회원명단 실시간 동기화 ──
+  window.fbSaveMembers = async function(mbs) {
+    try {
+      await setDoc(doc(db, 'shared', 'members'), { data: JSON.stringify(mbs) });
+    } catch(e) { console.error('회원 저장 오류:', e); }
+  };
+
+  window.fbLoadMembers = function(callback) {
+    onSnapshot(doc(db, 'shared', 'members'), (snap) => {
+      if(snap.exists()) {
+        try {
+          const mbs = JSON.parse(snap.data().data);
+          callback(mbs);
+        } catch(e) {}
+      }
+    });
+  };
+
+  // ── 회비 대장 실시간 동기화 ──
+  window.fbSaveFee = async function(fee) {
+    try {
+      await setDoc(doc(db, 'shared', 'fee'), { data: JSON.stringify(fee) });
+    } catch(e) { console.error('회비 저장 오류:', e); }
+  };
+
+  window.fbLoadFee = function(callback) {
+    onSnapshot(doc(db, 'shared', 'fee'), (snap) => {
+      if(snap.exists()) {
+        try {
+          const fee = JSON.parse(snap.data().data);
+          callback(fee);
+        } catch(e) {}
+      }
+    });
+  };
+
+  // ── 앱 로드 시 Firebase에서 데이터 불러오기 (DOM 준비 후) ──
+  window._fbReady = false;
+
   window.fbLoadEvents(function(evs) {
     if(evs && Object.keys(evs).length > 0) {
-      events = evs;
-      if(document.getElementById('cal-grid')) renderCalendar();
+      function applyEvents() {
+        if(typeof events !== 'undefined') {
+          events = evs;
+          localStorage.setItem('ongreen_cal_events', JSON.stringify(evs));
+          if(document.getElementById('cal-grid') && typeof renderCalendar === 'function') renderCalendar();
+        } else { setTimeout(applyEvents, 300); }
+      }
+      applyEvents();
     }
   });
 
   window.fbLoadNotices(function(notices) {
     if(notices && notices.length > 0) {
-      noticeList = notices;
-      if(document.getElementById('notice-list')) renderNoticeList();
+      function applyNotices() {
+        if(typeof noticeList !== 'undefined') {
+          noticeList = notices;
+          localStorage.setItem('ongreen_notices', JSON.stringify(notices));
+          if(document.getElementById('notice-list') && typeof renderNoticeList === 'function') renderNoticeList();
+          console.log('🔄 Firebase에서 공지 동기화 완료:', notices.length + '건');
+        } else { setTimeout(applyNotices, 300); }
+      }
+      applyNotices();
     }
   });
 
   window.fbLoadAttendance(function(att) {
     if(att) {
-      localStorage.setItem('ongreen_attendance', JSON.stringify(att));
-  if(window.fbSaveAttendance) window.fbSaveAttendance(att);
+      function applyAtt() {
+        if(document.readyState === 'complete' || document.readyState === 'interactive') {
+          localStorage.setItem('ongreen_attendance', JSON.stringify(att));
+          console.log('🔄 Firebase에서 참석 데이터 동기화 완료');
+        } else { setTimeout(applyAtt, 300); }
+      }
+      applyAtt();
     }
   });
 
-  console.log('Firebase 연결 완료 ✅');
+  window.fbLoadAds(function(ads) {
+    if(ads && ads.length > 0) {
+      function applyAds() {
+        if(typeof adList !== 'undefined' && typeof renderAds === 'function') {
+          adList = ads;
+          localStorage.setItem('ongreen_ads', JSON.stringify(ads));
+          renderAds();
+          renderHomeAdBanner();
+          console.log('🔄 Firebase에서 광고 동기화 완료:', ads.length + '건');
+        } else { setTimeout(applyAds, 300); }
+      }
+      applyAds();
+    }
+  });
+
+  // ── 회원명단 동기화 (Firebase 최우선) ──
+  window.fbLoadMembers(function(mbs) {
+    if(mbs && mbs.length > 0) {
+      function applyMembers() {
+        if(typeof members !== 'undefined' && typeof renderMembers === 'function') {
+          members.length = 0;
+          mbs.forEach(m => members.push(m));
+          localStorage.setItem('ongreen_members', JSON.stringify(mbs));
+          renderMembers(typeof currentFilter !== 'undefined' ? currentFilter : 'all');
+          if(typeof updateMemberCount === 'function') updateMemberCount();
+          console.log('🔄 Firebase 회원 동기화 완료:', mbs.length + '명');
+        } else { setTimeout(applyMembers, 300); }
+      }
+      applyMembers();
+    } else {
+      // Firebase 데이터 없을 때 현재 데이터(localStorage) Firebase에 업로드
+      console.log('⚠️ Firebase 회원 없음 → 현재 데이터 업로드');
+      setTimeout(function() {
+        if(typeof members !== 'undefined' && members.length > 0 && window.fbSaveMembers) {
+          window.fbSaveMembers(members);
+        }
+      }, 1000);
+    }
+  });
+
+  // ── 회비 대장 동기화 ──
+  window.fbLoadFee(function(fee) {
+    if(fee && fee.length > 0) {
+      function applyFee() {
+        if(typeof feeEditable !== 'undefined' && typeof renderFeeList === 'function') {
+          feeEditable = fee;
+          localStorage.setItem('ongreen_fee_entries', JSON.stringify(fee));
+          renderFeeList();
+          console.log('\uD83D\uDD04 Firebase에서 회비 동기화 완료:', fee.length + '건');
+        } else { setTimeout(applyFee, 300); }
+      }
+      applyFee();
+    }
+  });
+
+  console.log('Firebase 연결 완료 ✅ (회원·회비 동기화 포함)');
 </script>
 </head>
 <body>
@@ -739,21 +871,39 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
   </div>
   <div class="home-section">
     <div class="section-hd">
-      <h3>🗓 이번달 일정</h3>
-      <button class="btn-more" onclick="showPage('calendar')">캘린더 ›</button>
+      <h3>🏢 기업 광고</h3>
+      <button class="btn-more" onclick="showPage('calendar')">더보기 ›</button>
     </div>
-    <div class="event-item">
-      <div class="event-dot-col"><div class="event-dot"></div><div class="event-line"></div></div>
-      <div>
-        <div class="event-title">3월 정기 월례회</div>
-        <div class="event-meta">3월 22일(토) · 신북생태공원</div>
+    <!-- 홈 기업광고 배너 슬라이더 -->
+    <div id="home-ad-slider" style="position:relative;border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);aspect-ratio:16/7;cursor:pointer;" onclick="showPage('calendar')">
+      <div id="home-ad-slides" style="display:flex;transition:transform 0.5s ease;height:100%;">
+        <div style="min-width:100%;height:100%;background:linear-gradient(135deg,#0d47a1,#1976d2);display:flex;align-items:center;padding:0 20px;gap:14px;">
+          <div style="flex-shrink:0;width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:28px;">🏌️</div>
+          <div style="color:white;">
+            <div style="font-size:9px;font-weight:600;background:rgba(255,255,255,0.2);display:inline-block;padding:2px 8px;border-radius:4px;margin-bottom:5px;">AD</div>
+            <div style="font-size:15px;font-weight:700;line-height:1.3;">파크골프 프로샵<br><span style="font-size:12px;font-weight:400;opacity:0.8;">클럽·공·용품 회원 특별할인</span></div>
+          </div>
+        </div>
+        <div style="min-width:100%;height:100%;background:linear-gradient(135deg,#bf360c,#e65100);display:flex;align-items:center;padding:0 20px;gap:14px;">
+          <div style="flex-shrink:0;width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:28px;">🍽️</div>
+          <div style="color:white;">
+            <div style="font-size:9px;font-weight:600;background:rgba(255,255,255,0.2);display:inline-block;padding:2px 8px;border-radius:4px;margin-bottom:5px;">AD</div>
+            <div style="font-size:15px;font-weight:700;line-height:1.3;">올리브 레스토랑<br><span style="font-size:12px;font-weight:400;opacity:0.8;">라운딩 후 식사 10% 할인</span></div>
+          </div>
+        </div>
+        <div style="min-width:100%;height:100%;background:linear-gradient(135deg,#1a4d25,#388e3c);display:flex;align-items:center;padding:0 20px;gap:14px;">
+          <div style="flex-shrink:0;width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:28px;">🏥</div>
+          <div style="color:white;">
+            <div style="font-size:9px;font-weight:600;background:rgba(255,255,255,0.2);display:inline-block;padding:2px 8px;border-radius:4px;margin-bottom:5px;">AD</div>
+            <div style="font-size:15px;font-weight:700;line-height:1.3;">여수정형외과<br><span style="font-size:12px;font-weight:400;opacity:0.8;">회원 건강검진·물리치료 할인</span></div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="event-item">
-      <div class="event-dot-col"><div class="event-dot" style="background:var(--gold)"></div></div>
-      <div>
-        <div class="event-title">전남 선수권대회 출전</div>
-        <div class="event-meta">4월 12일(토) · 순천만 파크골프장</div>
+      <!-- 인디케이터 -->
+      <div id="home-ad-dots" style="position:absolute;bottom:8px;right:12px;display:flex;gap:5px;">
+        <span class="home-ad-dot" style="width:6px;height:6px;border-radius:50%;background:white;opacity:1;transition:opacity 0.3s;"></span>
+        <span class="home-ad-dot" style="width:6px;height:6px;border-radius:50%;background:white;opacity:0.35;transition:opacity 0.3s;"></span>
+        <span class="home-ad-dot" style="width:6px;height:6px;border-radius:50%;background:white;opacity:0.35;transition:opacity 0.3s;"></span>
       </div>
     </div>
   </div>
@@ -761,43 +911,61 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
 
 <!-- NOTICE -->
 <div class="page" id="page-notice">
-  <div class="section-hd" style="margin-bottom:14px">
+  <div class="section-hd" style="margin-bottom:6px">
     <h3>📋 공지사항</h3>
-    <button class="btn-more" onclick="openNoticeEdit(null)" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">+ 작성</button>
+    <button class="btn-more" onclick="checkAdAuth(function(){openNoticeEdit(null)})" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">+ 작성</button>
+  </div>
+  <div id="sync-status" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;font-size:11px;color:var(--text-hint);">
+    <span id="sync-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-hint);"></span>
+    <span id="sync-text">동기화 확인 중...</span>
+    <button onclick="forceSync()" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:12px;padding:3px 10px;font-size:10px;color:var(--text-sub);cursor:pointer;font-family:inherit;">🔄 새로고침</button>
   </div>
   <div id="notice-list"></div>
 </div>
 
-<!-- CALENDAR -->
+<!-- CALENDAR (기업광고) -->
 <div class="page" id="page-calendar">
-  <div class="cal-header">
-    <button class="cal-nav" onclick="changeMonth(-1)">‹</button>
-    <div class="cal-month" id="cal-month-label"></div>
-    <button class="cal-nav" onclick="changeMonth(1)">›</button>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <button onclick="changeMonth(-1)" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-main);padding:4px 10px;">‹</button>
+    <div id="cal-month-label" style="font-size:17px;font-weight:700;color:var(--text-main);"></div>
+    <button onclick="changeMonth(1)" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-main);padding:4px 10px;">›</button>
   </div>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
-    <div style="display:flex;gap:6px;">
-    <button onclick="openEventEdit(null,null)" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">+ 일정 추가</button>
-    <button onclick="resetAllEvents()" style="background:none;color:var(--text-hint);border:1px solid var(--border);border-radius:20px;padding:7px 11px;font-size:11px;cursor:pointer;font-family:inherit;">↺ 초기화</button>
-  </div>
-  </div>
-  <div class="cal-grid" id="cal-grid"></div>
-  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
-  <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#fff8e1;color:#c9a227;font-weight:600;">● 월례회</span>
-  <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#ffebee;color:#c62828;font-weight:600;">● 전국대회</span>
-  <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#e3f0fb;color:#1565c0;font-weight:600;">● 대한협회</span>
-  <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#f3e5f5;color:#6a1b9a;font-weight:600;">● 지방대회</span>
-  <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#e8f5eb;color:#2d7a3a;font-weight:600;">● 지역대회</span>
+  <div id="cal-grid" class="cal-grid" style="margin-bottom:14px;"></div>
+  <div id="cal-event-list" style="margin-top:8px;"></div>
+  <button onclick="openEventEdit(null)" style="width:100%;margin-top:14px;background:var(--green-main);color:white;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">+ 일정 추가</button>
 </div>
-<div class="event-list-title">이달의 일정</div>
-  <div id="event-list"></div>
+
+<div class="page" id="page-ads">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div>
+      <h3 style="font-size:16px;font-weight:700;color:var(--text-main);">🏢 기업 광고</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-top:4px;">온그린 파크골프 클럽 제휴 기업을 소개합니다</p>
+    </div>
+    <button onclick="openAdEdit(null)" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">🔐 광고 등록</button>
+  </div>
+
+  <!-- 배너 슬라이더 (동적) -->
+  <div id="ad-banner-slider" style="position:relative;border-radius:var(--radius);overflow:hidden;margin-bottom:16px;box-shadow:var(--shadow);aspect-ratio:16/9;background:#eee;">
+    <div id="ad-slides" style="display:flex;transition:transform 0.4s ease;height:100%;"></div>
+    <button onclick="slideAd(-1)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.35);color:white;border:none;border-radius:50%;width:32px;height:32px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">‹</button>
+    <button onclick="slideAd(1)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.35);color:white;border:none;border-radius:50%;width:32px;height:32px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;">›</button>
+    <div id="ad-dots" style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;"></div>
+  </div>
+
+  <!-- 광고 카드 목록 (동적) -->
+  <div id="ad-card-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+
+  <div style="text-align:center;margin-top:20px;padding:16px;background:var(--green-light);border-radius:var(--radius-sm);">
+    <div style="font-size:13px;font-weight:600;color:var(--green-dark);margin-bottom:4px;">📞 기업 광고 문의</div>
+    <div style="font-size:12px;color:var(--text-sub);">광고 게재를 원하시는 기업은 사무장에게 연락주세요</div>
+  </div>
 </div>
 
 <!-- MEMBERS -->
 <div class="page" id="page-members">
   <div class="section-hd" style="margin-bottom:12px">
     <h3>👥 회원 명부</h3>
-    <button class="btn-more">+ 등록</button>
+    <button class="btn-more" onclick="openMemberAdd()" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">+ 회원 추가</button>
   </div>
 
   <!-- 운영진 조직도 카드 (회원 페이지 상단 고정) -->
@@ -978,22 +1146,23 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
 <div class="page" id="page-fee">
   <div class="section-hd" style="margin-bottom:14px">
     <h3>💰 회비 내역</h3>
+    <button onclick="openFeeEdit(null)" style="background:var(--green-main);color:white;border:none;border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">+ 내역 추가</button>
   </div>
 
   <!-- 요약 -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
     <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:3px solid var(--green-main);padding:14px;text-align:center;">
       <div style="font-size:11px;color:var(--text-sub);margin-bottom:6px;font-weight:500;">💚 총 수입</div>
-      <div id="fee-sum-inc" style="font-size:17px;font-weight:700;color:var(--green-main);">11,425,776원</div>
+      <div id="fee-sum-inc" style="font-size:17px;font-weight:700;color:var(--green-main);">계산 중...</div>
     </div>
     <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:3px solid #e53935;padding:14px;text-align:center;">
       <div style="font-size:11px;color:var(--text-sub);margin-bottom:6px;font-weight:500;">❤️ 총 지출</div>
-      <div id="fee-sum-exp" style="font-size:17px;font-weight:700;color:#e53935;">6,000,122원</div>
+      <div id="fee-sum-exp" style="font-size:17px;font-weight:700;color:#e53935;">계산 중...</div>
     </div>
     <div style="grid-column:1/-1;background:var(--gold-light);border-radius:12px;border:1.5px solid var(--gold);padding:16px;text-align:center;">
       <div style="font-size:11px;color:#7a5c00;margin-bottom:6px;font-weight:600;">🏦 현재 잔액</div>
-      <div id="fee-sum-bal" style="font-size:26px;font-weight:700;color:#b8860b;">5,710,690원</div>
-      <div style="font-size:11px;color:#7a5c00;margin-top:4px;" id="fee-date-label">3월 19일 기준</div>
+      <div id="fee-sum-bal" style="font-size:26px;font-weight:700;color:#b8860b;">계산 중...</div>
+      <div style="font-size:11px;color:#7a5c00;margin-top:4px;" id="fee-date-label">4월 06일 기준</div>
     </div>
   </div>
 
@@ -1118,8 +1287,8 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
   <button class="nav-item" onclick="showPage('rules', this)">
     <span class="nav-icon">📜</span><span>회칙</span>
   </button>
-  <button class="nav-item" onclick="showPage('calendar', this)">
-    <span class="nav-icon">🗓</span><span>일정</span>
+  <button class="nav-item" onclick="showPage('ads', this)">
+    <span class="nav-icon">🏢</span><span>기업광고</span>
   </button>
   <button class="nav-item" onclick="showPage('members', this)">
     <span class="nav-icon">👥</span><span>회원</span>
@@ -1286,13 +1455,129 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
   </div>
 </div>
 
+<!-- FEE EDIT MODAL -->
+<div class="modal-overlay" id="fee-edit-modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('fee-edit-modal')">✕</button>
+    <div class="modal-title" id="fee-modal-title">회비 내역 추가</div>
+    <input type="hidden" id="fee-edit-idx" value="">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div>
+        <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">날짜 (월.일)</div>
+        <input type="text" id="fee-edit-date" placeholder="예: 04.15" maxlength="5"
+          style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">구분</div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" id="fee-type-inc" onclick="selectFeeType('inc')"
+            style="flex:1;padding:11px 4px;border-radius:10px;border:1.5px solid var(--green-main);background:var(--green-light);color:var(--green-dark);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">수입</button>
+          <button type="button" id="fee-type-exp" onclick="selectFeeType('exp')"
+            style="flex:1;padding:11px 4px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text-sub);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">지출</button>
+        </div>
+        <input type="hidden" id="fee-type-val" value="inc">
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">내용 / 항목</div>
+      <input type="text" id="fee-edit-desc" placeholder="예: 회비-홍길동" inputmode="text" lang="ko"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">금액 (원)</div>
+      <input type="tel" id="fee-edit-amount" placeholder="예: 200000" inputmode="numeric"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:18px;font-family:inherit;outline:none;font-weight:700;"
+        oninput="formatFeeAmount(this)">
+      <div id="fee-amount-preview" style="font-size:13px;color:var(--text-hint);margin-top:5px;text-align:right;"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button id="fee-delete-btn" onclick="deleteFeeEntry()" style="display:none;flex:1;background:#ffebee;color:#e53935;border:1.5px solid #e53935;border-radius:10px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">삭제</button>
+      <button onclick="saveFeeEntry()" style="flex:2;background:var(--green-main);color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- AD EDIT MODAL -->
+<div class="modal-overlay" id="ad-edit-modal">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ad-edit-modal')">✕</button>
+    <div class="modal-title" id="ad-modal-title">광고 등록</div>
+    <input type="hidden" id="ad-edit-idx" value="">
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">아이콘 (이모지)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="selectAdIcon(this,'⛳')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--green-main);background:var(--green-light);cursor:pointer;">⛳</button>
+        <button onclick="selectAdIcon(this,'🏌️')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🏌️</button>
+        <button onclick="selectAdIcon(this,'🍽️')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🍽️</button>
+        <button onclick="selectAdIcon(this,'🏥')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🏥</button>
+        <button onclick="selectAdIcon(this,'🚗')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🚗</button>
+        <button onclick="selectAdIcon(this,'🏢')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🏢</button>
+        <button onclick="selectAdIcon(this,'🛒')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">🛒</button>
+        <button onclick="selectAdIcon(this,'💊')" class="ad-icon-btn" style="font-size:24px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;">💊</button>
+      </div>
+      <input type="hidden" id="ad-icon-val" value="⛳">
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">배너 색상</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="selectAdColor(this,'#0d47a1,#1976d2')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--green-main);background:linear-gradient(135deg,#0d47a1,#1976d2);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#1a4d25,#388e3c')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#1a4d25,#388e3c);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#bf360c,#e65100')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#bf360c,#e65100);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#4a148c,#7b1fa2')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#4a148c,#7b1fa2);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#880e4f,#c2185b')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#880e4f,#c2185b);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#263238,#455a64')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#263238,#455a64);cursor:pointer;"></button>
+        <button onclick="selectAdColor(this,'#c9a227,#e8d09a')" class="ad-color-btn" style="width:36px;height:36px;border-radius:10px;border:2px solid var(--border);background:linear-gradient(135deg,#c9a227,#e8d09a);cursor:pointer;"></button>
+      </div>
+      <input type="hidden" id="ad-color-val" value="#0d47a1,#1976d2">
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">기업명 / 상호</div>
+      <input type="text" id="ad-company" placeholder="예: 여수 파크골프 프로샵" inputmode="text" lang="ko"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">광고 문구 (혜택/설명)</div>
+      <input type="text" id="ad-desc" placeholder="예: 클럽·공·용품 회원 특별할인 20%" inputmode="text" lang="ko"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">연락처 / 전화번호</div>
+      <input type="tel" id="ad-phone" placeholder="예: 061-123-4567" inputmode="tel"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">주소 / 위치 (선택)</div>
+      <input type="text" id="ad-address" placeholder="예: 여수시 학동 123-4" inputmode="text" lang="ko"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;">
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button id="ad-delete-btn" onclick="deleteAd()" style="display:none;flex:1;background:#ffebee;color:#e53935;border:1.5px solid #e53935;border-radius:10px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">삭제</button>
+      <button onclick="saveAd()" style="flex:2;background:var(--green-main);color:white;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- MEMBER EDIT MODAL -->
 <div class="modal-overlay" id="member-edit-modal">
   <div class="modal-box">
     <div class="modal-handle"></div>
     <button class="modal-close" onclick="closeModal('member-edit-modal')">✕</button>
-    <div class="modal-title">회원 정보 수정</div>
+    <div class="modal-title" id="edit-modal-title">회원 정보 수정</div>
     <input type="hidden" id="edit-member-id">
+    <input type="hidden" id="edit-is-new" value="0">
 
     <!-- 사진 영역 -->
     <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:18px;">
@@ -1354,6 +1639,62 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
         outline:none;color:var(--text-main);background:var(--white);">
     </div>
 
+    <!-- 전화번호 입력 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">전화번호</div>
+      <input type="tel" id="edit-phone"
+        inputmode="tel"
+        placeholder="010-0000-0000"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;
+        padding:12px 14px;font-size:16px;font-family:'Noto Sans KR',sans-serif;
+        outline:none;color:var(--text-main);background:var(--white);">
+    </div>
+
+    <!-- 성별 선택 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">성별</div>
+      <div style="display:flex;gap:10px;">
+        <button type="button" id="edit-gender-male" onclick="selectEditGender('male')"
+          style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text-sub);">👨 남성</button>
+        <button type="button" id="edit-gender-female" onclick="selectEditGender('female')"
+          style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text-sub);">👩 여성</button>
+      </div>
+      <input type="hidden" id="edit-gender-val" value="">
+    </div>
+
+    <!-- 직책 선택 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">직책</div>
+      <select id="edit-pos"
+        style="width:100%;border:1.5px solid var(--border);border-radius:10px;
+        padding:12px 14px;font-size:15px;font-family:'Noto Sans KR',sans-serif;
+        outline:none;color:var(--text-main);background:var(--white);appearance:none;">
+        <option value="일반회원">일반회원</option>
+        <option value="회장">회장</option>
+        <option value="부회장">부회장</option>
+        <option value="감사">감사</option>
+        <option value="협회이사">협회이사</option>
+        <option value="클럽이사">클럽이사</option>
+        <option value="경기이사">경기이사</option>
+        <option value="사무국장">사무국장</option>
+        <option value="사무장">사무장</option>
+        <option value="총무">총무</option>
+        <option value="고문">고문</option>
+      </select>
+    </div>
+
+    <!-- 등급 선택 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">등급</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="edit-grade-btn" onclick="selectEditGrade('gen',this)" style="padding:8px 16px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-size:13px;cursor:pointer;font-family:inherit;color:var(--text-sub);">일반</button>
+        <button type="button" class="edit-grade-btn" onclick="selectEditGrade('exec',this)" style="padding:8px 16px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-size:13px;cursor:pointer;font-family:inherit;color:var(--text-sub);">임원</button>
+        <button type="button" class="edit-grade-btn" onclick="selectEditGrade('pro',this)" style="padding:8px 16px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-size:13px;cursor:pointer;font-family:inherit;color:var(--text-sub);">프로</button>
+        <button type="button" class="edit-grade-btn" onclick="selectEditGrade('new',this)" style="padding:8px 16px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-size:13px;cursor:pointer;font-family:inherit;color:var(--text-sub);">신규</button>
+      </div>
+      <input type="hidden" id="edit-grade-val" value="gen">
+    </div>
+
     <!-- 생일 입력 -->
     <div style="margin-bottom:20px;">
       <div style="font-size:12px;color:var(--text-hint);margin-bottom:6px;font-weight:500;">🎂 생일 (월/일)</div>
@@ -1384,18 +1725,24 @@ body.big-mode .big-mode-btn { background: var(--gold); color: white; }
       </div>
     </div>
 
-    <button onclick="saveMemberEdit()"
-      style="width:100%;background:var(--green-main);color:white;border:none;
-      border-radius:12px;padding:15px;font-size:15px;font-weight:700;cursor:pointer;
-      font-family:'Noto Sans KR',sans-serif;">
-      저장 완료
-    </button>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button type="button" id="edit-delete-btn" onclick="deleteMember()"
+        style="display:none;flex:1;background:#ffebee;color:#e53935;border:1.5px solid #e53935;border-radius:12px;padding:15px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Noto Sans KR',sans-serif;">
+        탈퇴/삭제
+      </button>
+      <button type="button" onclick="saveMemberEdit()"
+        style="flex:2;background:var(--green-main);color:white;border:none;
+        border-radius:12px;padding:15px;font-size:15px;font-weight:700;cursor:pointer;
+        font-family:'Noto Sans KR',sans-serif;">
+        저장 완료
+      </button>
+    </div>
   </div>
 </div>
 
 <script>
 // ── DATA ──
-const members = [
+let members = [
   { id:1,  name:'강원희', phone:'010-9242-3503', gender:'female', joined:'2025.01', grade:'gen',  pos:'일반회원', initials:'강원', age:0 },
   { id:2,  name:'권영숙', phone:'010-9011-9767', gender:'female', joined:'2025.01', grade:'exec', pos:'회장',    initials:'권영', age:0 },
   { id:3,  name:'김경석', phone:'010-8227-7100', gender:'male',   joined:'2025.01', grade:'gen',  pos:'일반회원', initials:'김경', age:0 },
@@ -1430,6 +1777,9 @@ const members = [
   { id:32, name:'최종심', phone:'010-5044-4188', gender:'female', joined:'2025.01', grade:'gen',  pos:'일반회원', initials:'최종', age:0 },
   { id:33, name:'허성채', phone:'010-3635-7967', gender:'male',   joined:'2025.01', grade:'gen',  pos:'일반회원', initials:'허성', age:0 },
 ];
+// localStorage에 저장된 회원 데이터가 있으면 우선 사용 (Firebase 로드 전 임시)
+// Firebase 또는 localStorage 데이터 우선 로드 (하드코딩 데이터 덮어쓰기 방지)
+{ const saved = localStorage.getItem('ongreen_members'); if(saved) { try { const parsed = JSON.parse(saved); if(parsed && parsed.length > 0) { members.length = 0; parsed.forEach(m => members.push(m)); console.log('✅ localStorage에서 회원 복원:', parsed.length + '명'); } } catch(e) { console.error('회원 데이터 복원 오류:', e); } } }
 
 const defaultEvents = {
   '2026-02': [
@@ -1534,7 +1884,7 @@ const accessLogs = [
 ];
 
 // ── NAV ──
-const pages = ['home','notice','calendar','members','fee','chat','officers','rules'];
+const pages = ['home','notice','calendar','ads','members','fee','chat','officers','rules'];
 function showPage(name, btn) {
   pages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -1575,8 +1925,10 @@ let calYear = 2026, calMonth = now.getMonth();
 function changeMonth(d) { calMonth += d; if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;} renderCalendar(); }
 function renderCalendar() {
   const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-  document.getElementById('cal-month-label').textContent = `${calYear}년 ${months[calMonth]}`;
+  const calLabel = document.getElementById('cal-month-label');
+  if(calLabel) calLabel.textContent = `${calYear}년 ${months[calMonth]}`;
   const grid = document.getElementById('cal-grid');
+  if(!grid) return;
   grid.innerHTML = '';
   const dows = ['일','월','화','수','목','금','토'];
   dows.forEach(d => { const el = document.createElement('div'); el.className='cal-dow'; el.textContent=d; grid.appendChild(el); });
@@ -1738,12 +2090,47 @@ function openMember(id) {
   },50);
 }
 
+function openMemberAdd() {
+  // 신규 회원 추가
+  const newId = Math.max(...members.map(m=>m.id), 0) + 1;
+  document.getElementById('edit-modal-title').textContent = '신규 회원 추가';
+  document.getElementById('edit-member-id').value = newId;
+  document.getElementById('edit-is-new').value = '1';
+  document.getElementById('edit-name').value = '';
+  document.getElementById('edit-phone').value = '';
+  document.getElementById('edit-age').value = '';
+  document.getElementById('edit-joined').value = new Date().toISOString().split('T')[0];
+  document.getElementById('edit-birth-month').value = '';
+  document.getElementById('edit-birth-day').value = '';
+  document.getElementById('edit-pos').value = '일반회원';
+  document.getElementById('edit-gender-val').value = '';
+  document.getElementById('edit-grade-val').value = 'gen';
+  _resetGenderBtns('');
+  _resetGradeBtns('gen');
+  const imgEl = document.getElementById('edit-photo-img');
+  imgEl.src = ''; imgEl.style.display = 'none';
+  document.getElementById('edit-photo-placeholder').style.display = 'block';
+  document.getElementById('edit-photo-remove').style.display = 'none';
+  document.getElementById('edit-photo-preview').style.border = '2.5px dashed var(--green-main)';
+  document.getElementById('edit-photo-input').value = '';
+  document.getElementById('edit-delete-btn').style.display = 'none';
+  document.getElementById('member-edit-modal').classList.add('open');
+}
+
 function openMemberEdit(id) {
   const m = members.find(x=>x.id===id);
   if(!m) return;
+  document.getElementById('edit-modal-title').textContent = '회원 정보 수정';
   document.getElementById('edit-member-id').value = id;
+  document.getElementById('edit-is-new').value = '0';
   document.getElementById('edit-name').value = m.name;
+  document.getElementById('edit-phone').value = m.phone || '';
   document.getElementById('edit-age').value = m.age > 0 ? m.age : '';
+  document.getElementById('edit-pos').value = m.pos || '일반회원';
+  document.getElementById('edit-gender-val').value = m.gender || '';
+  document.getElementById('edit-grade-val').value = m.grade || 'gen';
+  _resetGenderBtns(m.gender);
+  _resetGradeBtns(m.grade);
   // 가입일
   if(m.joined) {
     const parts = m.joined.replace(/[.]/g,'-');
@@ -1775,8 +2162,37 @@ function openMemberEdit(id) {
     preview.style.border = '2.5px dashed var(--green-main)';
   }
   document.getElementById('edit-photo-input').value = '';
+  document.getElementById('edit-delete-btn').style.display = 'block';
   closeModal('member-modal');
   document.getElementById('member-edit-modal').classList.add('open');
+}
+
+function _resetGenderBtns(gender) {
+  const mBtn = document.getElementById('edit-gender-male');
+  const fBtn = document.getElementById('edit-gender-female');
+  if(!mBtn || !fBtn) return;
+  mBtn.style.background = gender==='male' ? 'var(--male-light)' : 'var(--white)';
+  mBtn.style.borderColor = gender==='male' ? 'var(--male)' : 'var(--border)';
+  mBtn.style.color = gender==='male' ? 'var(--male)' : 'var(--text-sub)';
+  fBtn.style.background = gender==='female' ? 'var(--female-light)' : 'var(--white)';
+  fBtn.style.borderColor = gender==='female' ? 'var(--female)' : 'var(--border)';
+  fBtn.style.color = gender==='female' ? 'var(--female)' : 'var(--text-sub)';
+}
+function _resetGradeBtns(grade) {
+  document.querySelectorAll('.edit-grade-btn').forEach(b => {
+    const isActive = b.getAttribute('onclick') && b.getAttribute('onclick').includes("'"+grade+"'");
+    b.style.background = isActive ? 'var(--green-main)' : 'var(--white)';
+    b.style.color = isActive ? 'white' : 'var(--text-sub)';
+    b.style.borderColor = isActive ? 'var(--green-main)' : 'var(--border)';
+  });
+}
+function selectEditGender(g) {
+  document.getElementById('edit-gender-val').value = g;
+  _resetGenderBtns(g);
+}
+function selectEditGrade(g, btn) {
+  document.getElementById('edit-grade-val').value = g;
+  _resetGradeBtns(g);
 }
 
 // 사진 저장소
@@ -1807,16 +2223,33 @@ function removePhoto() {
 
 function saveMemberEdit() {
   const id = parseInt(document.getElementById('edit-member-id').value);
+  const isNew = document.getElementById('edit-is-new').value === '1';
   const name = document.getElementById('edit-name').value.trim();
+  const phone = document.getElementById('edit-phone').value.trim();
   const ageRaw = document.getElementById('edit-age').value.replace(/[^0-9]/g,'');
   const age = parseInt(ageRaw)||0;
-  const m = members.find(x=>x.id===id);
-  if(!m || !name) {
-    alert('이름을 입력해주세요.');
-    return;
+  const pos = document.getElementById('edit-pos').value;
+  const gender = document.getElementById('edit-gender-val').value;
+  const grade = document.getElementById('edit-grade-val').value;
+
+  if(!name) { showToast('이름을 입력해주세요'); return; }
+
+  let m;
+  if(isNew) {
+    m = { id, name, phone, gender, joined:'', grade, pos, initials:name.slice(0,2), age };
+    members.push(m);
+    showToast('✅ 회원이 추가됐습니다');
+  } else {
+    m = members.find(x=>x.id===id);
+    if(!m) return;
+    showToast('✅ 저장됐습니다');
   }
   m.name = name;
+  m.phone = phone;
   m.age = age;
+  m.pos = pos;
+  m.gender = gender || m.gender;
+  m.grade = grade;
   m.initials = name.slice(0,2);
   // 가입일 저장
   const joinedVal = document.getElementById('edit-joined').value;
@@ -1834,23 +2267,65 @@ function saveMemberEdit() {
   }
   // 사진 저장
   const imgEl = document.getElementById('edit-photo-img');
-  if(imgEl.src && imgEl.style.display !== 'none') {
+  if(imgEl.src && imgEl.style.display !== 'none' && imgEl.src !== window.location.href) {
     memberPhotos[id] = imgEl.src;
     localStorage.setItem('ongreen_photos', JSON.stringify(memberPhotos));
   } else if(!imgEl.src || imgEl.style.display === 'none') {
-    // 사진 삭제된 경우
-    if(memberPhotos[id]) {
-      delete memberPhotos[id];
-      localStorage.setItem('ongreen_photos', JSON.stringify(memberPhotos));
-    }
+    if(memberPhotos[id]) { delete memberPhotos[id]; localStorage.setItem('ongreen_photos', JSON.stringify(memberPhotos)); }
+  }
+  // localStorage + Firebase 동기화
+  localStorage.setItem('ongreen_members', JSON.stringify(members));
+  if(window.fbSaveMembers) {
+    window.fbSaveMembers(members).then(function() {
+      console.log('✅ Firebase 저장 완료');
+    }).catch(function(e) {
+      console.error('Firebase 저장 실패:', e);
+      showToast('⚠️ 네트워크 오류 - 로컬에만 저장됨');
+    });
   }
   closeModal('member-edit-modal');
   renderMembers(currentFilter);
+  updateMemberCount();
+}
+
+function deleteMember() {
+  const id = parseInt(document.getElementById('edit-member-id').value);
+  const m = members.find(x=>x.id===id);
+  if(!m) return;
+  if(!confirm(m.name + ' 회원을 탈퇴/삭제할까요?\n이 작업은 되돌릴 수 없습니다.')) return;
+  const idx = members.findIndex(x=>x.id===id);
+  members.splice(idx, 1);
+  if(memberPhotos[id]) { delete memberPhotos[id]; localStorage.setItem('ongreen_photos', JSON.stringify(memberPhotos)); }
+  localStorage.setItem('ongreen_members', JSON.stringify(members));
+  if(window.fbSaveMembers) {
+    window.fbSaveMembers(members).then(function() {
+      console.log('✅ Firebase 삭제 동기화 완료');
+    }).catch(function(e) {
+      console.error('Firebase 삭제 동기화 실패:', e);
+    });
+  }
+  closeModal('member-edit-modal');
+  renderMembers(currentFilter);
+  updateMemberCount();
+  showToast('회원이 탈퇴 처리됐습니다');
+}
+
+function updateMemberCount() {
+  const total = members.length;
+  const male = members.filter(m=>m.gender==='male').length;
+  const female = members.filter(m=>m.gender==='female').length;
+  const tAll = document.getElementById('tab-all');
+  const tMale = document.getElementById('tab-male');
+  const tFemale = document.getElementById('tab-female');
+  if(tAll) tAll.textContent = `전체 (${total})`;
+  if(tMale) tMale.textContent = `남성 (${male})`;
+  if(tFemale) tFemale.textContent = `여성 (${female})`;
 }
 
 // ── ADMIN LOG ──
 function openAdminLog() {
   const list = document.getElementById('log-list');
+  if(!list) return;
   list.innerHTML = accessLogs.map(l=>`
     <div class="log-item">
       <div>
@@ -2405,9 +2880,146 @@ const feeData = [
   {date:'03.14',desc:'탈퇴 반환 - 조혜원',inc:0,exp:200000,bal:5730690},
   // ── 03.19 ──
   {date:'03.19',desc:'김노아(바이앤셀) - 출금',inc:0,exp:20000,bal:5710690},
+  // ── 03.28 ──
+  {date:'03.28',desc:'입출금통장 이자',inc:436,exp:0,bal:5731126},
+  // ── 04.01 ──
+  {date:'04.01',desc:'회비-박지영',inc:30000,exp:0,bal:5761126},
+  // ── 04.02 ──
+  {date:'04.02',desc:'회비-장한나',inc:60000,exp:0,bal:5821126},
+  {date:'04.02',desc:'회비-김영애',inc:30000,exp:0,bal:5851126},
+  // ── 04.04 ──
+  {date:'04.04',desc:'모임 체크카드 캐시백',inc:3000,exp:0,bal:5774126},
+  {date:'04.04',desc:'죽림스포니아 (체크카드)',inc:0,exp:80000,bal:5771126},
+  // ── 04.06 ──
+  {date:'04.06',desc:'주윤 상환불',inc:30000,exp:0,bal:5804126},
+  {date:'04.06',desc:'박지영 - 4월 월례회비 반환',inc:0,exp:30000,bal:5774126},
 ];
 
+
+// ── FEE CRUD ──
+let feeEditable = JSON.parse(localStorage.getItem('ongreen_fee_entries')||'null');
+// 버전 체크: 로컬 데이터가 최신 feeData보다 적으면 자동 업데이트
+const FEE_DATA_VERSION = feeData.length; // 현재 코드의 항목 수
+function initFeeEditable() {
+  const localCount = feeEditable ? feeEditable.length : 0;
+  if(!feeEditable || localCount < FEE_DATA_VERSION) {
+    // 코드에 새 항목이 추가됐으면 최신 데이터로 교체
+    feeEditable = feeData.map((r,i) => Object.assign({},r,{_id:i}));
+    localStorage.setItem('ongreen_fee_entries', JSON.stringify(feeEditable));
+    console.log('✅ 회비 데이터 최신화 완료:', feeEditable.length + '건');
+  }
+}
+
+let feeCurrentType = 'inc';
+function selectFeeType(t) {
+  feeCurrentType = t;
+  const incBtn = document.getElementById('fee-type-inc');
+  const expBtn = document.getElementById('fee-type-exp');
+  incBtn.style.background = t==='inc' ? 'var(--green-light)' : 'var(--white)';
+  incBtn.style.borderColor = t==='inc' ? 'var(--green-main)' : 'var(--border)';
+  incBtn.style.color = t==='inc' ? 'var(--green-dark)' : 'var(--text-sub)';
+  expBtn.style.background = t==='exp' ? '#ffebee' : 'var(--white)';
+  expBtn.style.borderColor = t==='exp' ? '#e53935' : 'var(--border)';
+  expBtn.style.color = t==='exp' ? '#e53935' : 'var(--text-sub)';
+  document.getElementById('fee-type-val').value = t;
+}
+
+function formatFeeAmount(input) {
+  const raw = input.value.replace(/[^0-9]/g,'');
+  input.value = raw;
+  const n = parseInt(raw)||0;
+  document.getElementById('fee-amount-preview').textContent = n > 0 ? n.toLocaleString() + '원' : '';
+}
+
+function openFeeEdit(idx) {
+  initFeeEditable();
+  const isNew = idx === null;
+  document.getElementById('fee-modal-title').textContent = isNew ? '회비 내역 추가' : '회비 내역 수정';
+  document.getElementById('fee-edit-idx').value = isNew ? '' : idx;
+  document.getElementById('fee-delete-btn').style.display = isNew ? 'none' : 'block';
+
+  if(!isNew && feeEditable[idx]) {
+    const r = feeEditable[idx];
+    document.getElementById('fee-edit-date').value = r.date || '';
+    document.getElementById('fee-edit-desc').value = r.desc || '';
+    const isInc = r.inc > 0;
+    selectFeeType(isInc ? 'inc' : 'exp');
+    const amount = isInc ? r.inc : r.exp;
+    document.getElementById('fee-edit-amount').value = amount;
+    document.getElementById('fee-amount-preview').textContent = amount.toLocaleString() + '원';
+  } else {
+    document.getElementById('fee-edit-date').value = '';
+    document.getElementById('fee-edit-desc').value = '';
+    document.getElementById('fee-edit-amount').value = '';
+    document.getElementById('fee-amount-preview').textContent = '';
+    selectFeeType('inc');
+  }
+  document.getElementById('fee-edit-modal').classList.add('open');
+}
+
+function saveFeeEntry() {
+  initFeeEditable();
+  const date = document.getElementById('fee-edit-date').value.trim();
+  const desc = document.getElementById('fee-edit-desc').value.trim();
+  const amount = parseInt(document.getElementById('fee-edit-amount').value.replace(/[^0-9]/g,''))||0;
+  const type = document.getElementById('fee-type-val').value;
+  const idxStr = document.getElementById('fee-edit-idx').value;
+
+  if(!date) { showToast('날짜를 입력해주세요'); return; }
+  if(!desc) { showToast('내용을 입력해주세요'); return; }
+  if(!amount) { showToast('금액을 입력해주세요'); return; }
+
+  // 잔액 재계산 (전체 순서 기준)
+  const entry = {
+    date, desc,
+    inc: type==='inc' ? amount : 0,
+    exp: type==='exp' ? amount : 0,
+    bal: 0,
+    _id: idxStr==='' ? Date.now() : feeEditable[parseInt(idxStr)]._id
+  };
+
+  if(idxStr==='') {
+    feeEditable.push(entry);
+  } else {
+    feeEditable[parseInt(idxStr)] = entry;
+  }
+
+  _recalcFeeBalance();
+  localStorage.setItem('ongreen_fee_entries', JSON.stringify(feeEditable));
+  if(window.fbSaveFee) window.fbSaveFee(feeEditable);
+  closeModal('fee-edit-modal');
+  renderFeeList();
+  showToast('✅ 회비 내역이 저장됐어요');
+}
+
+function deleteFeeEntry() {
+  const idx = parseInt(document.getElementById('fee-edit-idx').value);
+  if(!confirm('이 내역을 삭제할까요?')) return;
+  feeEditable.splice(idx, 1);
+  _recalcFeeBalance();
+  localStorage.setItem('ongreen_fee_entries', JSON.stringify(feeEditable));
+  if(window.fbSaveFee) window.fbSaveFee(feeEditable);
+  closeModal('fee-edit-modal');
+  renderFeeList();
+  showToast('내역이 삭제됐어요');
+}
+
+function _recalcFeeBalance() {
+  let bal = 0;
+  feeEditable.forEach(r => {
+    bal += (r.inc||0) - (r.exp||0);
+    r.bal = bal;
+  });
+}
+
+
 let currentFeeFilter = 'all';
+function _activeFeeData() {
+  // 편집된 데이터가 있으면 사용, 없으면 하드코딩 기본값
+  if(feeEditable) return feeEditable;
+  initFeeEditable();
+  return feeEditable;
+}
 function filterFee(month, btn) {
   currentFeeFilter = month;
   document.querySelectorAll('.fee-filter').forEach(b=>{
@@ -2420,7 +3032,7 @@ function filterFee(month, btn) {
   btn.style.borderColor = 'var(--green-main)';
   // 날짜 레이블 업데이트
   const lbl = document.getElementById('fee-date-label');
-  const mNames = {'all':'3월 19일 기준 · 잔액 5,710,690원','12':'12월 기준','01':'1월 기준','02':'2월 기준','03':'3월 19일 기준'};
+  const mNames = {'all':'4월 06일 기준 · 잔액 5,774,126원','12':'12월 기준','01':'1월 기준','02':'2월 기준','03':'3월 19일 기준','04':'4월 기준'};
   if(lbl) lbl.textContent = mNames[month]||'';
   renderFeeList();
 }
@@ -2429,27 +3041,34 @@ function renderFeeList() {
   const list = document.getElementById('fee-list');
   if(!list) return;
 
-  let filtered = currentFeeFilter === 'all'
-    ? feeData
-    : feeData.filter(r => r.date.startsWith(currentFeeFilter));
-
-  // 12.09 이월잔액은 수입/지출 합산에서 제외
+  // 이월잔액 판단
   const isCarryOver = r => r.date === '12.09' && r.desc === '통장잔액';
 
-  // 정확한 합계 계산 (이월잔액 제외)
-  const totalInc = filtered.filter(r=>!isCarryOver(r)).reduce((s,r)=>s+r.inc,0);
-  const totalExp = filtered.reduce((s,r)=>s+r.exp,0);
-  // 실제 잔액: 마지막 항목 기준
-  const lastRow = filtered[filtered.length-1];
-  const lastBal = lastRow ? lastRow.bal : 0;
+  // 편집 가능한 데이터 사용 (localStorage 우선)
+  const activeData = _activeFeeData();
 
-  // 요약카드 업데이트
+  // 필터링
+  const filtered = currentFeeFilter === 'all'
+    ? activeData
+    : activeData.filter(r => r.date.startsWith(currentFeeFilter));
+
+  // 전체 기준 요약 합계 갱신
+  const totalInc = activeData.filter(r=>!isCarryOver(r)).reduce((s,r)=>s+r.inc,0);
+  const totalExp = activeData.reduce((s,r)=>s+r.exp,0);
+  const lastBal = activeData.length ? activeData[activeData.length-1].bal : 0;
   const si = document.getElementById('fee-sum-inc');
   const se = document.getElementById('fee-sum-exp');
   const sb = document.getElementById('fee-sum-bal');
   if(si) si.textContent = totalInc.toLocaleString()+'원';
   if(se) se.textContent = totalExp.toLocaleString()+'원';
   if(sb) sb.textContent = lastBal.toLocaleString()+'원';
+  // 최종 날짜 자동 갱신
+  const lbl2 = document.getElementById('fee-date-label');
+  if(lbl2 && activeData.length) {
+    const lastRaw = activeData[activeData.length-1].date; // 예: '04.06'
+    const parts = lastRaw.split('.');
+    if(parts.length===2) lbl2.textContent = parseInt(parts[0])+'월 '+parseInt(parts[1])+'일 기준';
+  }
 
   // 날짜별 그룹핑
   const groups = {};
@@ -2516,6 +3135,7 @@ function renderFeeList() {
 
     [...rows].reverse().forEach(r => {
       const isCarry = isCarryOver(r);
+      const rIdx = activeData.indexOf(r);
       html += `<div style="display:flex;align-items:center;padding:10px 13px;gap:10px;border-bottom:0.5px solid var(--bg);">
         <div style="flex:1;font-size:13px;color:${isCarry?'var(--text-hint)':'var(--text-main)'};line-height:1.4;">${r.desc}${isCarry?' <span style="font-size:10px;color:var(--text-hint);">(이월잔액)</span>':''}</div>
         <div style="text-align:right;flex-shrink:0;min-width:80px;">
@@ -2523,6 +3143,7 @@ function renderFeeList() {
           ${r.inc>0&&isCarry?`<div style="font-size:12px;color:var(--text-hint);">${r.inc.toLocaleString()}</div>`:''}
           ${r.exp>0?`<div style="font-size:13px;font-weight:700;color:#e53935;">-${r.exp.toLocaleString()}</div>`:''}
         </div>
+        <button onclick="openFeeEdit(${rIdx})" style="background:none;border:none;font-size:14px;cursor:pointer;padding:2px 4px;color:var(--text-hint);" title="수정">✏️</button>
       </div>`;
     });
     html += '</div>';
@@ -2821,9 +3442,43 @@ let selectedBadgeType = 'badge-notice';
 let selectedBadgeLabel = '공지';
 let nextNoticeId = Math.max(...noticeList.map(n=>n.id||0))+1;
 
+function forceSync() {
+  const dot = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-text');
+  if(dot) dot.style.background = '#ff9800';
+  if(txt) txt.textContent = '동기화 중...';
+  // Firebase에서 최신 데이터 강제 로드
+  if(window.fbLoadNotices) {
+    window.fbLoadNotices(function(notices) {
+      if(notices && notices.length > 0) {
+        noticeList = notices;
+        localStorage.setItem('ongreen_notices', JSON.stringify(notices));
+        renderNoticeList();
+        showToast('최신 데이터로 동기화됐어요 🔄');
+      } else {
+        if(dot) dot.style.background = 'var(--green-main)';
+        if(txt) txt.textContent = '변경사항 없음';
+        showToast('이미 최신 상태입니다 ✅');
+      }
+    });
+  } else {
+    if(dot) dot.style.background = '#e53935';
+    if(txt) txt.textContent = 'Firebase 연결 안 됨';
+    showToast('서버 연결을 확인해주세요 ⚠️');
+  }
+}
+
 function renderNoticeList() {
   const el = document.getElementById('notice-list');
   if(!el) return;
+  // 동기화 상태 표시
+  const dot = document.getElementById('sync-dot');
+  const txt = document.getElementById('sync-text');
+  if(dot && txt) {
+    dot.style.background = 'var(--green-main)';
+    const now = new Date();
+    txt.textContent = `동기화 완료 · ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+  }
 
   // 이달 생일자 카드
   const birthData = JSON.parse(localStorage.getItem('ongreen_birthdays')||'{}');
@@ -2860,7 +3515,7 @@ function renderNoticeList() {
         <span class="badge ${n.badge}">${n.label}</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="notice-date">${n.date}</span>
-          <button onclick="event.stopPropagation();openNoticeEdit(${i})" style="background:none;border:none;font-size:13px;color:var(--text-hint);cursor:pointer;padding:2px 4px;">✏️</button>
+          <button onclick="event.stopPropagation();checkAdAuth(function(){openNoticeEdit(${i})})" style="background:none;border:none;font-size:13px;color:var(--text-hint);cursor:pointer;padding:2px 4px;">✏️</button>
         </div>
       </div>
       <div class="notice-title">${n.title}</div>
@@ -3024,6 +3679,23 @@ function toggleBigMode() {
 }
 applyBigMode();
 
+
+// ── TOAST ──
+function showToast(msg, duration) {
+  duration = duration || 2200;
+  let t = document.getElementById('_toast_el');
+  if(!t) {
+    t = document.createElement('div');
+    t.id = '_toast_el';
+    t.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(26,77,37,0.93);color:white;padding:11px 22px;border-radius:24px;font-size:14px;font-weight:500;z-index:9999;white-space:nowrap;pointer-events:none;transition:opacity 0.3s;opacity:0;font-family:"Noto Sans KR",sans-serif;max-width:80vw;text-align:center;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.style.opacity = '0'; }, duration);
+}
+
 // ── SPLASH ──
 setTimeout(()=>{
   document.getElementById('splash').style.opacity='0';
@@ -3040,8 +3712,251 @@ setTimeout(()=>{
   },500);
 }, 2000);
 
+// ── 기업광고 관리 시스템 ──
+const defaultAds = [
+  {id:1, icon:'🏌️', color:'#0d47a1,#1976d2', company:'파크골프 프로샵', desc:'클럽·공·용품 회원 특별할인', phone:'061-123-4567', address:'여수시 학동'},
+  {id:2, icon:'🍽️', color:'#bf360c,#e65100', company:'올리브 레스토랑', desc:'라운딩 후 식사 10% 할인', phone:'061-234-5678', address:'여수시 여서동'},
+  {id:3, icon:'🏥', color:'#1a4d25,#388e3c', company:'여수정형외과', desc:'회원 건강검진·물리치료 할인', phone:'061-345-6789', address:'여수시 문수동'},
+];
+let adList = JSON.parse(localStorage.getItem('ongreen_ads')||'null') || defaultAds;
+let nextAdId = Math.max(...adList.map(a=>a.id||0))+1;
+let adIdx = 0;
+let selectedAdIcon = '⛳';
+let selectedAdColor = '#0d47a1,#1976d2';
+
+// 광고 페이지 렌더링
+function renderAds() {
+  const slides = document.getElementById('ad-slides');
+  const dots = document.getElementById('ad-dots');
+  const cards = document.getElementById('ad-card-list');
+  if(!slides || !dots || !cards) return;
+
+  if(adList.length === 0) {
+    slides.innerHTML = '<div style="min-width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a4d25,#3d9e4f);color:white;flex-direction:column;padding:24px;text-align:center;"><div style="font-size:36px;margin-bottom:10px;">🏢</div><div style="font-size:16px;font-weight:700;">등록된 광고가 없습니다</div><div style="font-size:12px;opacity:0.7;margin-top:6px;">+ 광고 등록 버튼으로 추가하세요</div></div>';
+    dots.innerHTML = '';
+    cards.innerHTML = '';
+    return;
+  }
+
+  // 배너 슬라이더
+  slides.innerHTML = adList.map(a => `
+    <div style="min-width:100%;height:100%;display:flex;align-items:center;padding:0 24px;gap:16px;background:linear-gradient(135deg,${a.color});cursor:pointer;" onclick="openAdEdit(${adList.indexOf(a)})">
+      <div style="flex-shrink:0;width:64px;height:64px;background:rgba(255,255,255,0.15);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:32px;">${a.icon}</div>
+      <div style="color:white;flex:1;">
+        <div style="font-size:9px;font-weight:600;background:rgba(255,255,255,0.2);display:inline-block;padding:2px 8px;border-radius:4px;margin-bottom:5px;">AD</div>
+        <div style="font-size:16px;font-weight:700;line-height:1.3;">${a.company}</div>
+        <div style="font-size:12px;opacity:0.8;margin-top:3px;">${a.desc}</div>
+      </div>
+    </div>`).join('');
+
+  // 인디케이터
+  dots.innerHTML = adList.map((_,i) => `<span class="ad-dot" style="width:8px;height:8px;border-radius:50%;background:white;opacity:${i===0?'1':'0.4'};transition:opacity 0.3s;cursor:pointer;" onclick="goSlide(${i})"></span>`).join('');
+
+  // 카드 목록
+  cards.innerHTML = adList.map((a,i) => `
+    <div style="background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--border);padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;" onclick="openAdEdit(${i})">
+      <div style="width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,${a.color});display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;color:white;">${a.icon}</div>
+      <div style="flex:1;">
+        <div style="font-size:14px;font-weight:700;color:var(--text-main);">${a.company}</div>
+        <div style="font-size:12px;color:var(--text-sub);margin-top:3px;">${a.desc}</div>
+        ${a.phone ? `<div style="font-size:11px;color:var(--text-hint);margin-top:3px;">📞 ${a.phone}</div>` : ''}
+      </div>
+      <span style="font-size:11px;color:var(--green-main);font-weight:600;background:var(--green-light);padding:4px 10px;border-radius:99px;">✏️</span>
+    </div>`).join('');
+
+  adIdx = 0;
+  updateAdSlider();
+}
+
+// 홈 배너 렌더링
+function renderHomeAdBanner() {
+  const slider = document.getElementById('home-ad-slides');
+  const dots = document.getElementById('home-ad-dots');
+  if(!slider) return;
+
+  if(adList.length === 0) {
+    slider.innerHTML = '<div style="min-width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1a4d25,#3d9e4f);color:white;flex-direction:column;padding:20px;text-align:center;"><div style="font-size:20px;margin-bottom:6px;">🏢</div><div style="font-size:13px;font-weight:600;">광고 등록 대기 중</div></div>';
+    if(dots) dots.innerHTML = '';
+    return;
+  }
+
+  slider.innerHTML = adList.map(a => `
+    <div style="min-width:100%;height:100%;background:linear-gradient(135deg,${a.color});display:flex;align-items:center;padding:0 20px;gap:14px;">
+      <div style="flex-shrink:0;width:48px;height:48px;background:rgba(255,255,255,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;">${a.icon}</div>
+      <div style="color:white;flex:1;">
+        <div style="font-size:9px;font-weight:600;background:rgba(255,255,255,0.2);display:inline-block;padding:1px 7px;border-radius:4px;margin-bottom:4px;">AD</div>
+        <div style="font-size:14px;font-weight:700;line-height:1.3;">${a.company}</div>
+        <div style="font-size:11px;opacity:0.8;margin-top:2px;">${a.desc}</div>
+      </div>
+    </div>`).join('');
+
+  if(dots) {
+    dots.innerHTML = adList.map((_,i) => `<span class="home-ad-dot" style="width:6px;height:6px;border-radius:50%;background:white;opacity:${i===0?'1':'0.35'};transition:opacity 0.3s;"></span>`).join('');
+  }
+}
+
+// 슬라이더 제어
+function slideAd(dir) {
+  if(adList.length === 0) return;
+  adIdx = (adIdx + dir + adList.length) % adList.length;
+  updateAdSlider();
+}
+function goSlide(i) { adIdx = i; updateAdSlider(); }
+function updateAdSlider() {
+  const s = document.getElementById('ad-slides');
+  if(s) s.style.transform = `translateX(-${adIdx*100}%)`;
+  document.querySelectorAll('#ad-dots .ad-dot').forEach((d,i) => {
+    d.style.opacity = i===adIdx ? '1' : '0.4';
+  });
+}
+setInterval(()=>{ if(adList.length > 1) slideAd(1); }, 4000);
+
+// 홈 배너 자동슬라이드
+let homeAdIdx = 0;
+setInterval(()=>{
+  if(adList.length <= 1) return;
+  homeAdIdx = (homeAdIdx + 1) % adList.length;
+  const s = document.getElementById('home-ad-slides');
+  if(s) s.style.transform = `translateX(-${homeAdIdx*100}%)`;
+  document.querySelectorAll('.home-ad-dot').forEach((d,i) => {
+    d.style.opacity = i===homeAdIdx ? '1' : '0.35';
+  });
+}, 3500);
+
+// 광고 편집 모달
+let adUnlocked = false;
+const AD_PASSWORD = '1010'; // 사무장 전용 비밀번호
+
+function checkAdAuth(callback) {
+  if(adUnlocked) { callback(); return; }
+  const pw = prompt('🔐 사무장 전용 기능입니다\n비밀번호를 입력하세요');
+  if(pw === null) return;
+  if(pw === AD_PASSWORD) {
+    adUnlocked = true;
+    showToast('🔓 관리자 인증 완료');
+    callback();
+  } else {
+    alert('비밀번호가 틀렸습니다');
+  }
+}
+
+function selectAdIcon(btn, icon) {
+  document.querySelectorAll('.ad-icon-btn').forEach(b => {
+    b.style.borderColor = 'var(--border)';
+    b.style.background = 'var(--white)';
+  });
+  btn.style.borderColor = 'var(--green-main)';
+  btn.style.background = 'var(--green-light)';
+  selectedAdIcon = icon;
+  document.getElementById('ad-icon-val').value = icon;
+}
+
+function selectAdColor(btn, color) {
+  document.querySelectorAll('.ad-color-btn').forEach(b => {
+    b.style.borderColor = 'var(--border)';
+  });
+  btn.style.borderColor = 'var(--green-main)';
+  selectedAdColor = color;
+  document.getElementById('ad-color-val').value = color;
+}
+
+function openAdEdit(idx) {
+  checkAdAuth(function() { _openAdEdit(idx); });
+}
+
+function _openAdEdit(idx) {
+  const isNew = idx === null;
+  document.getElementById('ad-modal-title').textContent = isNew ? '광고 등록' : '광고 수정';
+  document.getElementById('ad-edit-idx').value = isNew ? '' : idx;
+  document.getElementById('ad-delete-btn').style.display = isNew ? 'none' : 'block';
+
+  if(!isNew && adList[idx]) {
+    const a = adList[idx];
+    document.getElementById('ad-company').value = a.company || '';
+    document.getElementById('ad-desc').value = a.desc || '';
+    document.getElementById('ad-phone').value = a.phone || '';
+    document.getElementById('ad-address').value = a.address || '';
+    selectedAdIcon = a.icon || '⛳';
+    selectedAdColor = a.color || '#0d47a1,#1976d2';
+    // 아이콘 선택 표시
+    document.querySelectorAll('.ad-icon-btn').forEach(b => {
+      const match = b.textContent.trim() === selectedAdIcon;
+      b.style.borderColor = match ? 'var(--green-main)' : 'var(--border)';
+      b.style.background = match ? 'var(--green-light)' : 'var(--white)';
+    });
+    // 색상 선택 표시
+    document.querySelectorAll('.ad-color-btn').forEach(b => {
+      const onclick = b.getAttribute('onclick') || '';
+      const match = onclick.includes(selectedAdColor);
+      b.style.borderColor = match ? 'var(--green-main)' : 'var(--border)';
+    });
+  } else {
+    document.getElementById('ad-company').value = '';
+    document.getElementById('ad-desc').value = '';
+    document.getElementById('ad-phone').value = '';
+    document.getElementById('ad-address').value = '';
+    selectedAdIcon = '⛳';
+    selectedAdColor = '#0d47a1,#1976d2';
+    document.querySelectorAll('.ad-icon-btn').forEach((b,i) => {
+      b.style.borderColor = i===0 ? 'var(--green-main)' : 'var(--border)';
+      b.style.background = i===0 ? 'var(--green-light)' : 'var(--white)';
+    });
+    document.querySelectorAll('.ad-color-btn').forEach((b,i) => {
+      b.style.borderColor = i===0 ? 'var(--green-main)' : 'var(--border)';
+    });
+  }
+  document.getElementById('ad-edit-modal').classList.add('open');
+}
+
+function saveAd() {
+  const company = document.getElementById('ad-company').value.trim();
+  const desc = document.getElementById('ad-desc').value.trim();
+  const phone = document.getElementById('ad-phone').value.trim();
+  const address = document.getElementById('ad-address').value.trim();
+  if(!company) { alert('기업명을 입력해주세요'); return; }
+  if(!desc) { alert('광고 문구를 입력해주세요'); return; }
+
+  const idxStr = document.getElementById('ad-edit-idx').value;
+  const item = {
+    id: idxStr === '' ? nextAdId++ : adList[parseInt(idxStr)].id,
+    icon: selectedAdIcon,
+    color: selectedAdColor,
+    company, desc, phone, address
+  };
+
+  if(idxStr === '') {
+    adList.push(item);
+  } else {
+    adList[parseInt(idxStr)] = item;
+  }
+
+  localStorage.setItem('ongreen_ads', JSON.stringify(adList));
+  if(window.fbSaveAds) window.fbSaveAds(adList);
+  closeModal('ad-edit-modal');
+  renderAds();
+  renderHomeAdBanner();
+  showToast('광고가 저장됐어요 ✅');
+}
+
+function deleteAd() {
+  const idx = parseInt(document.getElementById('ad-edit-idx').value);
+  if(!confirm('이 광고를 삭제할까요?')) return;
+  adList.splice(idx, 1);
+  localStorage.setItem('ongreen_ads', JSON.stringify(adList));
+  if(window.fbSaveAds) window.fbSaveAds(adList);
+  closeModal('ad-edit-modal');
+  renderAds();
+  renderHomeAdBanner();
+  showToast('광고가 삭제됐어요');
+}
+
+// 초기 렌더링
+renderAds();
+renderHomeAdBanner();
+
 // ── INIT CALENDAR ──
 renderCalendar();
+updateMemberCount();
 </script>
 </body>
 </html>
